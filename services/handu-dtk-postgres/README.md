@@ -16,3 +16,11 @@ Railway service:
 The Gateway variable should use the private Railway hostname:
 
 `DTK_DATABASE_URL=postgresql+asyncpg://dtk:<password>@<postgres-service>.railway.internal:5432/dtk`
+
+## Railway volume
+
+Mount the Railway volume at `/home/postgres/pgdata/data`, but set:
+
+`PGDATA=/home/postgres/pgdata/data/pgdata`
+
+Do not use the volume mount root directly as `PGDATA`; Railway volumes may contain `lost+found`, which causes PostgreSQL `initdb` to fail.
