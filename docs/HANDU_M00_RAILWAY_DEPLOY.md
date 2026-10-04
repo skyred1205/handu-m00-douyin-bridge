@@ -12,6 +12,7 @@ Source: this repository.
 - no public domain
 - private port 5432
 - persistent Railway volume mounted at `/home/postgres/pgdata/data`
+- `PGDATA=/home/postgres/pgdata/data/pgdata` (use a subdirectory; do not init directly at the volume root)
 - `POSTGRES_DB=dtk`
 - `POSTGRES_USER=dtk`
 - `POSTGRES_PASSWORD=<secret>`
