@@ -1,6 +1,15 @@
 name: HANDU M00 Bridge CI
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - "services/handu-m00-bridge/**"
+      - "services/handu-dtk-gateway/**"
+      - "services/handu-dtk-browser/**"
+      - "services/handu-dtk-postgres/**"
+      - ".github/workflows/handu-m00-bridge-ci.yml"
   pull_request:
     paths:
       - "services/handu-m00-bridge/**"
