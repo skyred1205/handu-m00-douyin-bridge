@@ -1,0 +1,138 @@
+name: HANDU M00 Bridge CI
+
+on:
+  pull_request:
+    paths:
+      - "services/handu-m00-bridge/**"
+      - "services/handu-dtk-gateway/**"
+      - "services/handu-dtk-browser/**"
+      - "services/handu-dtk-postgres/**"
+      - ".github/workflows/handu-m00-bridge-ci.yml"
+  workflow_dispatch:
+
+jobs:
+  bridge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install bridge and test dependencies
+        working-directory: services/handu-m00-bridge
+        run: python -m pip install -e ".[test]"
+
+      - name: Unit tests
+        working-directory: services/handu-m00-bridge
+        run: pytest -q
+
+      - name: MCP import smoke
+        working-directory: services/handu-m00-bridge
+        env:
+          DTK_BASE_URL: http://dtk.invalid
+          DTK_API_KEY: test
+          HANDU_M00_BRIDGE_TOKEN: test
+        run: python -c "from handu_m00_bridge.server import app; print(type(app).__name__)"
+
+      - name: Gateway syntax check
+        run: python -m py_compile services/handu-dtk-gateway/gateway.py
+
+      - name: Vendored bridge sync check
+        run: diff -ru services/handu-m00-bridge/handu_m00_bridge services/handu-dtk-gateway/handu_m00_bridge
+
+      - name: Bridge Docker build
+        run: docker build -t handu-m00-bridge:test services/handu-m00-bridge
+
+      - name: Combined DTK gateway Docker build
+        run: docker build -t handu-dtk-gateway:test services/handu-dtk-gateway
+
+      - name: TimescaleDB wrapper Docker build
+        run: docker build -t handu-dtk-postgres:test services/handu-dtk-postgres
+
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Browser RPC Docker build
+        run: docker build -t handu-dtk-browser:test services/handu-dtk-browser
+
+
+  gateway-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: timescale/timescaledb-ha:pg17
+        env:
+          POSTGRES_DB: dtk
+          POSTGRES_USER: dtk
+          POSTGRES_PASSWORD: dtk-ci-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dtk -d dtk"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build self-contained gateway
+        run: docker build -t handu-dtk-gateway:integration services/handu-dtk-gateway
+
+      - name: Start gateway with real TimescaleDB and Redis
+        run: |
+          docker run -d --name handu-gateway-test --network host \
+            -e PORT=8123 \
+            -e DTK_SECRET_KEY='CI_DTK_SECRET_0123456789abcdefghijklmnopqrstuvwxyz' \
+            -e DTK_DATABASE_URL='postgresql+asyncpg://dtk:dtk-ci-password@127.0.0.1:5432/dtk' \
+            -e DTK_REDIS_URL='redis://127.0.0.1:6379/0' \
+            -e HANDU_DTK_ADMIN_USERNAME='handu_ci_admin' \
+            -e HANDU_DTK_ADMIN_PASSWORD='CI_Admin_Password_12345' \
+            -e HANDU_M00_BRIDGE_TOKEN='CI_BRIDGE_TOKEN_abcdefghijklmnopqrstuvwxyz' \
+            handu-dtk-gateway:integration
+          for i in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:8123/health >/tmp/handu-health.json; then
+              cat /tmp/handu-health.json
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs handu-gateway-test
+          exit 1
+
+      - name: Bearer gate smoke
+        run: |
+          code=$(curl -sS -o /tmp/noauth.txt -w '%{http_code}' http://127.0.0.1:8123/mcp)
+          test "$code" = "401"
+          code=$(curl -sS -o /tmp/auth.txt -w '%{http_code}' \
+            -H 'Authorization: Bearer CI_BRIDGE_TOKEN_abcdefghijklmnopqrstuvwxyz' \
+            http://127.0.0.1:8123/mcp)
+          test "$code" != "401"
+
+      - name: Secrets are absent from gateway logs
+        run: |
+          docker logs handu-gateway-test > /tmp/gateway.log 2>&1
+          ! grep -F 'CI_DTK_SECRET_0123456789abcdefghijklmnopqrstuvwxyz' /tmp/gateway.log
+          ! grep -F 'CI_Admin_Password_12345' /tmp/gateway.log
+          ! grep -F 'CI_BRIDGE_TOKEN_abcdefghijklmnopqrstuvwxyz' /tmp/gateway.log
+          grep -F 'gateway ready: HANDU M00 MCP bridge healthy' /tmp/gateway.log
+
+      - name: Stop gateway
+        if: always()
+        run: |
+          docker logs handu-gateway-test || true
+          docker rm -f handu-gateway-test || true
