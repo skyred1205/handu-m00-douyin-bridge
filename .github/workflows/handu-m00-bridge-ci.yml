@@ -50,7 +50,7 @@ jobs:
         run: python -m py_compile services/handu-dtk-gateway/gateway.py
 
       - name: Vendored bridge sync check
-        run: diff -ru services/handu-m00-bridge/handu_m00_bridge services/handu-dtk-gateway/handu_m00_bridge
+        run: diff -ru --exclude='__pycache__' services/handu-m00-bridge/handu_m00_bridge services/handu-dtk-gateway/handu_m00_bridge
 
       - name: Bridge Docker build
         run: docker build -t handu-m00-bridge:test services/handu-m00-bridge
