@@ -384,7 +384,7 @@ def install_oauth_routes(mcp, service_label: str) -> None:
                         "INSERT INTO handu_oauth_codes (code_hash,issuer,client_id,redirect_uri,code_challenge,resource,scope,expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,NOW()+interval '5 minutes')",
                         _digest(code), _origin(), tx["client_id"], tx["redirect_uri"], tx["code_challenge"], tx["resource"], tx["scope"],
                     )
-            return RedirectResponse(_chatgpt_callback(tx["redirect_uri"], code, tx["oauth_state"]), status_code=302)
+            return RedirectResponse(_chatgpt_callback(tx["redirect_uri"], code, tx["oauth_state"]), status_code=303)
         except Exception:
             return _page("<main><h2>Sign-in failed</h2><p>Return to ChatGPT and reconnect the app.</p></main>", 500)
 
