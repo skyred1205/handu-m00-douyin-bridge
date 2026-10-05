@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 import httpx
 
@@ -25,6 +26,14 @@ class LucyLabExport:
     srt_url: str
 
 
+def _validate_asset_url(url: str) -> str:
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme != "https" or not (host == "cdn.lucylab.io" or host.endswith(".lucylab.io")):
+        raise LucyLabError("LucyLab returned an untrusted asset URL")
+    return url
+
+
 class LucyLabClient:
     def __init__(
         self,
@@ -39,7 +48,7 @@ class LucyLabClient:
         self.poll_timeout_ms = poll_timeout_ms
         self.client = httpx.AsyncClient(
             timeout=30.0,
-            follow_redirects=True,
+            follow_redirects=False,
             headers=request_headers,
         )
 
@@ -114,7 +123,11 @@ class LucyLabClient:
                     raise LucyLabError("LucyLab export completed without audio URL")
                 if not isinstance(srt_url, str) or not srt_url:
                     raise LucyLabError("LucyLab export completed without SRT URL")
-                return LucyLabExport(project_export_id, audio_url, srt_url)
+                return LucyLabExport(
+                    project_export_id,
+                    _validate_asset_url(audio_url),
+                    _validate_asset_url(srt_url),
+                )
             if state == "failed":
                 raise LucyLabExportFailed(str(status.get("error") or "LucyLab export failed"))
             await asyncio.sleep(max(0.25, self.poll_interval_ms / 1000.0))
@@ -123,10 +136,11 @@ class LucyLabClient:
         raise LucyLabError(f"LucyLab export polling timed out{suffix}")
 
     async def download(self, url: str) -> bytes:
+        trusted = _validate_asset_url(url)
         last_error: Exception | None = None
         for attempt in range(3):
             try:
-                response = await self.client.get(url, timeout=120.0)
+                response = await self.client.get(trusted, timeout=120.0)
                 response.raise_for_status()
                 if not response.content:
                     raise LucyLabError("LucyLab asset download returned empty content")
