@@ -6,20 +6,27 @@ Target: replace HANDU V1.5 Cloudflare M00 with a direct Railway-hosted Douyin in
 
 ### 1. handu-dtk-postgres
 
-Source: this repository.
+Railway-compatible TimescaleDB PostgreSQL 17 service.
 
-- Dockerfile: `services/handu-dtk-postgres/Dockerfile`
+- image: `timescale/timescaledb:latest-pg17`
 - no public domain
-- private port 5432
-- persistent Railway volume mounted at `/home/postgres/pgdata/data`
-- `PGDATA=/home/postgres/pgdata/data/pgdata` (use a subdirectory; do not init directly at the volume root)
+- private port: `5432`
+- persistent Railway volume mounted at `/var/lib/postgresql`
+- `PGDATA=/var/lib/postgresql/data`
 - `POSTGRES_DB=dtk`
 - `POSTGRES_USER=dtk`
 - `POSTGRES_PASSWORD=<secret>`
+- `POSTGRES_HOST_AUTH_METHOD=scram-sha-256`
+
+DTK requires PostgreSQL 17 with the TimescaleDB extension. Plain `postgres:17` is not sufficient.
 
 ### 2. Redis
 
-Use a Railway Redis database/service.
+For the one-job Railway acceptance environment, Redis runs ephemerally:
+
+`redis-server --save "" --appendonly no`
+
+This avoids Railway volume-permission/RDB failures and is sufficient for a disposable M00 test. For long-lived production use, replace this with a managed/persistent Redis configuration whose data directory permissions are verified.
 
 The Gateway receives its private Redis URL as `DTK_REDIS_URL`.
 
@@ -62,7 +69,7 @@ Only this service gets a public domain. The DTK API and downloader remain loopba
 The Gateway performs:
 
 1. DTK migrations.
-2. Admin creation on a fresh database; login verification on an existing database.
+2. Admin creation on a fresh database; login verification on an existing one.
 3. Downloader start.
 4. Internal DTK API start.
 5. Runtime API-key rotation.
@@ -99,7 +106,7 @@ Expected binary resource:
 
 ## Acceptance test
 
-Use the current production test link:
+Use:
 
 `https://v.douyin.com/-MQ7nbsrNjs`
 
@@ -109,7 +116,9 @@ PASS requires:
 2. MP4 bytes are non-empty.
 3. SHA-256 in the manifest matches the received source.
 4. DTK reports a Douyin video content id.
-5. Source opens and contains video + audio streams.
-6. Then HANDU continues M01-M12; M12 must PASS before delivery.
+5. MP4 metadata contains both video and audio tracks.
+6. Then HANDU may continue M01-M12; M12 must PASS before delivery.
 
 No Facebook publishing is part of this test.
+
+See `docs/ACCEPTANCE_2026-10-05.md` for the verified live run.
