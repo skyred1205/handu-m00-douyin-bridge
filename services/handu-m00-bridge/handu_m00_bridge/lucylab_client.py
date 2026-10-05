@@ -30,7 +30,7 @@ def _validate_asset_url(url: str) -> str:
     parsed = urlparse(url)
     host = (parsed.hostname or "").lower()
     if parsed.scheme != "https" or not (host == "cdn.lucylab.io" or host.endswith(".lucylab.io")):
-        raise LucyLabError("LucyLab returned an untrusted asset URL")
+        raise LucyLabError(f"LucyLab returned untrusted asset host: {host or '<empty>'}")
     return url
 
 
