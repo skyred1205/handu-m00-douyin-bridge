@@ -13,6 +13,7 @@ from starlette.responses import JSONResponse, Response
 from . import m06_service
 from .m06_config import DEFAULT_LUCYLAB_VOICE_ID, M06RuntimeError, srt_path, voice_path
 from .server import BearerTokenMiddleware
+from .oauth_auth import install_oauth_routes
 
 mcp = MCPServer("HANDU M06 LucyLab Bridge")
 
@@ -87,7 +88,10 @@ async def health(_: Request) -> Response:
     )
 
 
+install_oauth_routes(mcp, "M06")
+
 security = TransportSecuritySettings(enable_dns_rebinding_protection=False)
 app = BearerTokenMiddleware(
     mcp.streamable_http_app(stateless_http=True, transport_security=security)
 )
+
