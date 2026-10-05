@@ -14,6 +14,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from .dtk_client import DtkClient, DtkError
+from .oauth_auth import install_oauth_routes, valid_oauth_access_token
 
 CACHE_ROOT = Path(os.environ.get("HANDU_M00_CACHE_DIR", "/tmp/handu-m00-cache"))
 CACHE_ROOT.mkdir(parents=True, exist_ok=True)
@@ -123,34 +124,63 @@ async def health(_: Request) -> Response:
 
 
 class BearerTokenMiddleware:
-    """Small ASGI bearer gate. Health remains public; every other HTTP route requires the bridge token."""
+    """Accepts the existing private bearer token or a short-lived ChatGPT OAuth token."""
+
+    PUBLIC_PATHS = {
+        "/health",
+        "/register",
+        "/authorize",
+        "/authorize/login",
+        "/token",
+        "/.well-known/oauth-authorization-server",
+        "/.well-known/openid-configuration",
+        "/.well-known/oauth-protected-resource",
+        "/.well-known/oauth-protected-resource/mcp",
+        "/mcp/.well-known/oauth-protected-resource",
+    }
 
     def __init__(self, inner: Any) -> None:
         self.inner = inner
 
     async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
-        if scope.get("type") != "http" or scope.get("path") == "/health":
+        if scope.get("type") != "http" or scope.get("path") in self.PUBLIC_PATHS:
             await self.inner(scope, receive, send)
             return
         expected = os.environ.get("HANDU_M00_BRIDGE_TOKEN", "").strip()
         headers = {k.lower(): v for k, v in scope.get("headers", [])}
         supplied = headers.get(b"authorization", b"").decode("latin-1")
-        if not expected:
-            status, body = 503, b"bridge token is not configured"
-        elif not secrets.compare_digest(supplied, f"Bearer {expected}"):
-            status, body = 401, b"unauthorized"
-        else:
+        accepted = False
+        if expected and secrets.compare_digest(supplied, f"Bearer {expected}"):
+            accepted = True
+        elif supplied.startswith("Bearer "):
+            token = supplied[7:].strip()
+            public_origin = os.environ.get("HANDU_MCP_PUBLIC_ORIGIN", "").strip().rstrip("/")
+            if token and public_origin:
+                accepted = await valid_oauth_access_token(token, public_origin + "/mcp")
+        if accepted:
             await self.inner(scope, receive, send)
             return
+        if not expected:
+            status, body = 503, b"bridge token is not configured"
+        else:
+            status, body = 401, b"unauthorized"
+        metadata = os.environ.get("HANDU_MCP_PUBLIC_ORIGIN", "").strip().rstrip("/") + "/.well-known/oauth-protected-resource/mcp"
+        challenge = f'Bearer resource_metadata="{metadata}", scope="mcp:invoke"'
         await send(
             {
                 "type": "http.response.start",
                 "status": status,
-                "headers": [(b"content-type", b"text/plain; charset=utf-8"), (b"www-authenticate", b"Bearer")],
+                "headers": [
+                    (b"content-type", b"application/json; charset=utf-8"),
+                    (b"cache-control", b"no-store"),
+                    (b"www-authenticate", challenge.encode("latin-1")),
+                ],
             }
         )
-        await send({"type": "http.response.body", "body": body})
+        await send({"type": "http.response.body", "body": b'{"error":"unauthorized","error_description":"OAuth access token required."}'})
 
+
+install_oauth_routes(mcp, "M00")
 
 security = TransportSecuritySettings(enable_dns_rebinding_protection=False)
 app = BearerTokenMiddleware(mcp.streamable_http_app(stateless_http=True, transport_security=security))
