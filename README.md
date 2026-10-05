@@ -2,8 +2,21 @@
 
 Dedicated repository for the Railway-backed HANDU M00 Douyin intake bridge.
 
-## Acceptance target
+## Live status
+
+Railway acceptance test passed on 2026-10-05 using:
 
 `https://v.douyin.com/-MQ7nbsrNjs`
 
-PASS requires a valid non-empty `source.mp4`, matching SHA-256, and both video and audio streams before the localization pipeline continues.
+Verified:
+
+- public MCP authentication and initialization;
+- `download_douyin_video`;
+- binary `source.mp4` resource retrieval;
+- exact byte-count and SHA-256 match;
+- valid MP4 container;
+- both video and audio tracks.
+
+Deployment details: `docs/HANDU_M00_RAILWAY_DEPLOY.md`
+
+Acceptance evidence: `docs/ACCEPTANCE_2026-10-05.md`
