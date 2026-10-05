@@ -33,15 +33,25 @@ def settings() -> tuple[str, dict[str, str], str, str]:
     default_voice = os.environ.get("LUCYLAB_VOICE_ID", DEFAULT_LUCYLAB_VOICE_ID).strip()
     if not headers_raw:
         raise M06RuntimeError("M06_NOT_CONFIGURED")
+
+    clean_headers: dict[str, str] = {}
     try:
-        headers = json.loads(headers_raw)
-    except json.JSONDecodeError as exc:
-        raise M06RuntimeError("M06_HEADER_CONFIG_INVALID") from exc
-    if not isinstance(headers, dict) or not headers:
+        parsed = json.loads(headers_raw)
+    except json.JSONDecodeError:
+        parsed = None
+
+    if isinstance(parsed, dict):
+        clean_headers = {str(k): str(v) for k, v in parsed.items() if str(k).strip()}
+    elif isinstance(parsed, str) and parsed.strip():
+        raw = parsed.strip()
+        clean_headers = {"Authorization": raw if raw.lower().startswith("bearer ") else f"Bearer {raw}"}
+    elif parsed is None:
+        raw = headers_raw.strip()
+        clean_headers = {"Authorization": raw if raw.lower().startswith("bearer ") else f"Bearer {raw}"}
+
+    clean_headers.setdefault("Content-Type", "application/json")
+    if not endpoint or not dsn or not default_voice or not clean_headers.get("Authorization"):
         raise M06RuntimeError("M06_HEADER_CONFIG_INVALID")
-    clean_headers = {str(k): str(v) for k, v in headers.items() if str(k).strip()}
-    if not endpoint or not dsn or not default_voice or not clean_headers:
-        raise M06RuntimeError("M06_NOT_CONFIGURED")
     return endpoint, clean_headers, dsn, default_voice
 
 
