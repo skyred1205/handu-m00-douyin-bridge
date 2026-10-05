@@ -29,7 +29,7 @@ class LucyLabExport:
 def _validate_asset_url(url: str) -> str:
     parsed = urlparse(url)
     host = (parsed.hostname or "").lower()
-    if parsed.scheme != "https" or not (host == "cdn.lucylab.io" or host.endswith(".lucylab.io")):
+    if parsed.scheme != "https" or not (host == "cdn.lucylab.io" or host.endswith(".lucylab.io") or host == "public.ttsapi.app"):
         raise LucyLabError(f"LucyLab returned untrusted asset host: {host or '<empty>'}")
     return url
 
