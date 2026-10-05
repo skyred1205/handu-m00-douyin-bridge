@@ -155,7 +155,7 @@ def _metadata() -> dict:
         "grant_types_supported": ["authorization_code", "refresh_token"],
         "code_challenge_methods_supported": ["S256"],
         "token_endpoint_auth_methods_supported": ["none"],
-        "scopes_supported": [SCOPES],
+        "scopes_supported": [SCOPES, "offline_access"],
     }
 
 
@@ -311,10 +311,19 @@ def install_oauth_routes(mcp, service_label: str) -> None:
                 redirects = json.loads(redirects)
             if not row or redirect_uri not in redirects:
                 return _oauth_error("invalid_client", "ChatGPT client is not registered.")
+            requested_scopes = set(q.get("scope", SCOPES).split())
+            allowed_scopes = {SCOPES, "offline_access"}
+            if not requested_scopes:
+                requested_scopes = {SCOPES}
+            if SCOPES not in requested_scopes:
+                requested_scopes.add(SCOPES)
+            if not requested_scopes.issubset(allowed_scopes):
+                return _oauth_error("invalid_scope", "Only MCP invocation and offline access are supported.")
+            granted_scope = " ".join(sorted(requested_scopes))
             transaction = _random_token()
             await pool.execute(
                 "INSERT INTO handu_oauth_transactions (tx_hash,issuer,client_id,redirect_uri,code_challenge,oauth_state,resource,scope,expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW()+interval '10 minutes')",
-                _digest(transaction), _origin(), client_id, redirect_uri, challenge, state, resource, SCOPES,
+                _digest(transaction), _origin(), client_id, redirect_uri, challenge, state, resource, granted_scope,
             )
             label = html.escape(str(row["client_name"]))
             service = html.escape(service_label)
